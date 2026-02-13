@@ -5,6 +5,7 @@ from dump_detector import detect_dump
 
 async def main():
     client = GEClient(user_agent="osrs-dump-scanner - personal project")
+    active_dumps: dict[int, bool] = {}
 
     try:
         while True:
@@ -32,8 +33,16 @@ async def main():
                     print(f"Error fetching timeseries for item {item_id}: {timeseries}")
                     continue
 
-                if detect_dump(timeseries):
+                result = detect_dump(timeseries)
+
+                currently_dumping = result["is_dump"]
+                was_dumpng = active_dumps.get(item_id, False)
+
+                if currently_dumping and not was_dumpng:
+                    active_dumps[item_id] = True
                     print(f"Potential dump detected for {item_id}!")
+                elif not currently_dumping and was_dumpng:
+                    active_dumps[item_id] = False
 
             # Wait before next poll
             await asyncio.sleep(60)

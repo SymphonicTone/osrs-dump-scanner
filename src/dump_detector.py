@@ -1,34 +1,43 @@
 import pandas as pd
 
 
-def detect_dump(timeseries_data, z_threshold=-2.5, volume_multiplier=1.8):
-    # timeseries_data: list of candles from /timeseries endpoint, returns true if dump detected
-    timestamps = [candle["timestamp"] for candle in timeseries_data]
-    prices = [candle["avgLowPrice"] for candle in timeseries_data]
-    volumes = [
-        candle["highPriceVolume"] + candle["lowPriceVolume"]
-        for candle in timeseries_data
-    ]
+def detect_dump(
+    df: pd.DataFrame,
+    z_threshold: float = -2.5,
+    volume_multiplier: float = 1.8,
+    window: int = 288,
+) -> dict:
+    if len(df) < window:
+        return {"is_dump": False}
 
-    df = pd.DataFrame({"timestamp": timestamps, "price": prices, "volume": volumes})
-    df.set_index("timestamp", inplace=True)
+    price = df["avgLowPrice"]
+    volume = df["volume"]
 
-    rolling_mean = df["price"].rolling(window=288).mean()
-    rolling_std = df["price"].rolling(window=288).std()
+    rolling_mean = price.rolling(window=window).mean()
+    rolling_std = price.rolling(window=window).std()
+    avg_volume = volume.rolling(window=window).mean()
 
-    current_price = df["price"].iloc[-1]
+    current_price = price.iloc[-1]
+    current_volume = volume.iloc[-1]
     current_mean = rolling_mean.iloc[-1]
-    current_std = rolling_std.iloc[-1]
+    std_dev = rolling_std.iloc[-1]
+    avg_vol = avg_volume.iloc[-1]
 
-    if pd.isna(current_mean) or pd.isna(current_std) or current_std == 0:
-        return False
+    if pd.isna(std_dev) or std_dev == 0:
+        return {"is_dump": False}
 
-    current_z = (current_price - current_mean) / current_std
+    z_score = (current_price - current_mean) / std_dev
+    volume_ratio = current_volume / avg_vol if avg_vol else 0
 
-    avg_volume = df["volume"].rolling(window=288).mean().iloc[-1]
-    current_volume = df["volume"].iloc[-1]
+    is_dump = bool(z_score < z_threshold and volume_ratio > volume_multiplier)
 
-    if current_z < -2.5 and current_volume > 1.8 * avg_volume:
-        return True
-
-    return False
+    return {
+        "is_dump": is_dump,
+        "z_score": z_score,
+        "current_price": current_price,
+        "current_mean": current_mean,
+        "std_dev": std_dev,
+        "current_volume": current_volume,
+        "avg_volume": avg_vol,
+        "volume_ratio": volume_ratio,
+    }
