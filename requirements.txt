@@ -13,6 +13,7 @@ idna==3.11
 iniconfig==2.3.0
 multidict==6.7.1
 numpy==2.4.2
+-e git+ssh://git@github.com/SymphonicTone/osrs-dump-scanner.git@e227c4a9d7e65e8aa76531fe807302090782175d#egg=osrs_dump_scanner
 packaging==26.0
 pandas==3.0.0
 pluggy==1.6.0
