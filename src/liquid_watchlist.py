@@ -1,5 +1,4 @@
 import asyncio
-import pandas as pd
 
 
 async def build_liquid_watchlist(ge_client, min_daily_volume=80000):
@@ -8,8 +7,10 @@ async def build_liquid_watchlist(ge_client, min_daily_volume=80000):
     latest = await ge_client.fetch_latest()
     item_ids = list(latest.keys())
 
+    # limit concurrent requests to 50
     semaphore = asyncio.Semaphore(50)
 
+    # keep track of item_id with its timeseries
     async def fetch(item_id):
         async with semaphore:
             return item_id, await ge_client.fetch_5m_timeseries(item_id)
@@ -20,23 +21,24 @@ async def build_liquid_watchlist(ge_client, min_daily_volume=80000):
     liquid_items = []
 
     for result in results:
+        # ignore failed API calls
         if isinstance(result, Exception):
             continue
 
+        # skip without timeseries
         item_id, ts = result
 
         if not ts:
             continue
 
-        df = pd.DataFrame(ts)
+        last_24h = ts[-288:]
 
-        if df.empty:
-            continue
+        # calculate daily volume as sum of highPriceVolume and lowPriceVolume
+        daily_volume = sum(
+            row["highPriceVolume"] + row["lowPriceVolume"] for row in last_24h
+        )
 
-        df["total_volume"] = df["highPriceVolume"] + df["lowPriceVolume"]
-
-        daily_volume = df.tail(288)["total_volume"].sum()
-
+        # filter items based on daily volume threshold
         if daily_volume >= min_daily_volume:
             liquid_items.append(item_id)
 
