@@ -24,7 +24,8 @@ def make_timeseries(
     return pd.DataFrame(
         {
             "avgLowPrice": prices,
-            "volume": volumes,
+            "highPriceVolume": volumes * 0.5,
+            "lowPriceVolume": volumes * 0.5,
         }
     )
 
@@ -39,7 +40,8 @@ def test_no_dump():
 # Price drops but volume normal
 def test_price_dump_low_volume():
     ts = make_timeseries(dump=True)
-    ts.loc[ts.index[-1], "volume"] = 1000
+    ts.loc[ts.index[-1], "highPriceVolume"] = 500
+    ts.loc[ts.index[-1], "lowPriceVolume"] = 500
     result = detect_dump(ts)
     assert result["is_dump"] is False
 
