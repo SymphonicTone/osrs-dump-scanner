@@ -24,5 +24,11 @@ class GEClient:
         response.raise_for_status()
         return response.json()["data"]
 
+    async def fetch_item_mapping(self):
+        response = await self._client.get("/mapping")
+        response.raise_for_status()
+        data = response.json()
+        return {str(item["id"]): item["name"] for item in data}
+
     async def close(self):
         await self._client.aclose()

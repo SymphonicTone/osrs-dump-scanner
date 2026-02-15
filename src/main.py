@@ -14,7 +14,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
 
-async def scan_loop(ge_client, scanner, notifier, watchlist):
+async def scan_loop(ge_client, scanner, notifier, watchlist, item_names):
     while True:
         print("Scanning...")
 
@@ -46,7 +46,8 @@ async def scan_loop(ge_client, scanner, notifier, watchlist):
 
             if alert:
                 alert["item_id"] = item_id
-                await notifier.send_alert(alert)
+                item_name = item_names.get(str(item_id), f"Item {item_id}")
+                await notifier.send_alert(alert, item_name)
 
         # Wait before next poll
         await asyncio.sleep(120)
@@ -56,10 +57,11 @@ async def main():
     ge_client = GEClient(user_agent="osrs-dump-scanner - personal project")
     scanner = Scanner()
 
+    item_names = await ge_client.fetch_item_mapping()
     watchlist = await build_liquid_watchlist(ge_client)
 
     async def scanner_task():
-        await scan_loop(ge_client, scanner, bot, watchlist)
+        await scan_loop(ge_client, scanner, bot, watchlist, item_names)
 
     bot = DiscordNotifier(DISCORD_TOKEN, CHANNEL_ID, scanner_task)
     await bot.start(DISCORD_TOKEN)

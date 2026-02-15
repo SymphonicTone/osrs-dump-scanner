@@ -41,4 +41,5 @@ async def build_liquid_watchlist(ge_client, min_daily_volume=80000):
             liquid_items.append(item_id)
 
     print(f"Found {len(liquid_items)} liquid items")
+
     return liquid_items
