@@ -6,7 +6,6 @@ from scanner import Scanner
 from discord_notifier import DiscordNotifier
 from dotenv import load_dotenv
 from liquid_watchlist import build_liquid_watchlist
-import pandas as pd
 
 load_dotenv()
 
@@ -14,7 +13,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
 
-async def scan_loop(ge_client, scanner, notifier, watchlist, item_names):
+async def scan_loop(ge_client, scanner, notifier, watchlist, item_data):
     while True:
         print("Scanning...")
 
@@ -36,17 +35,26 @@ async def scan_loop(ge_client, scanner, notifier, watchlist, item_names):
             if not timeseries:
                 continue
 
-            df = pd.DataFrame(timeseries)
-
-            if df.empty:
+            item_meta = item_data.get(str(item_id))
+            if not item_meta:
                 continue
 
-            dump_data = detect_dump(df)
+            buy_limit = item_meta["buy_limit"]
+            item_name = item_meta["name"]
+
+            dump_data = detect_dump(timeseries, buy_limit)
+
+            if not dump_data.get("is_dump"):
+                continue
+
+            dump_data["expected_total_profit"] = (
+                dump_data["profit_per_item"] * dump_data["buy_limit"]
+            )
+
             alert = scanner.process_item(item_id, dump_data)
 
             if alert:
                 alert["item_id"] = item_id
-                item_name = item_names.get(str(item_id), f"Item {item_id}")
                 await notifier.send_alert(alert, item_name)
 
         # Wait before next poll
@@ -57,11 +65,13 @@ async def main():
     ge_client = GEClient(user_agent="osrs-dump-scanner - personal project")
     scanner = Scanner()
 
-    item_names = await ge_client.fetch_item_mapping()
+    item_data = await ge_client.fetch_item_mapping()
     watchlist = await build_liquid_watchlist(ge_client)
 
+    bot = None
+
     async def scanner_task():
-        await scan_loop(ge_client, scanner, bot, watchlist, item_names)
+        await scan_loop(ge_client, scanner, bot, watchlist, item_data)
 
     bot = DiscordNotifier(DISCORD_TOKEN, CHANNEL_ID, scanner_task)
     await bot.start(DISCORD_TOKEN)

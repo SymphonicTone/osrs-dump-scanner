@@ -7,7 +7,7 @@ class Scanner:
         self.cleanup_seconds = cleanup_seconds
 
     def process_item(self, item_id, detection_result):
-        is_dump = detection_result["is_dump"]
+        is_dump = detection_result.get("is_dump", False)
         now = time.time()
 
         self._cleanup(now)
@@ -34,12 +34,4 @@ class Scanner:
         ]
 
         for item_id in stale_items:
-            del self._state[item_id]
-
-    def prune(self, valid_item_ids: set):
-        to_remove = [
-            item_id for item_id in self._state if item_id not in valid_item_ids
-        ]
-
-        for item_id in to_remove:
             del self._state[item_id]

@@ -1,9 +1,11 @@
-import pandas as pd
+from statistics import mean, stdev
+from typing import List, Dict, Any
 
 
 def detect_dump(
-    df: pd.DataFrame,
-    z_threshold: float = -2.5,
+    timeseries: List[Dict[str, Any]],
+    buy_limit: int,
+    z_threshold: float = -3,
     volume_multiplier: float = 1.8,
     window: int = 288,
 ) -> dict:
@@ -15,46 +17,48 @@ def detect_dump(
         - lowPriceVolume
     """
 
-    required_cols = {"avgLowPrice", "highPriceVolume", "lowPriceVolume"}
-    if not required_cols.issubset(df.columns):
+    if not timeseries or len(timeseries) < window:
         return {"is_dump": False}
 
-    df = df.dropna(subset=["avgLowPrice"])
+    recent = timeseries[-window:]
 
-    if len(df) < window:
+    prices = []
+    volumes = []
+
+    for row in recent:
+        price = row.get("avgLowPrice")
+        high_vol = row.get("highPriceVolume")
+        low_vol = row.get("lowPriceVolume")
+
+        if price is None or high_vol is None or low_vol is None:
+            continue
+
+        prices.append(price)
+        volumes.append(high_vol + low_vol)
+
+    if len(prices) < window:
         return {"is_dump": False}
 
-    # Work only with last `window` rows (faster + cleaner)
-    df = df.tail(window).copy()
-
-    # Normalize volume column
-    df["total_volume"] = df["highPriceVolume"] + df["lowPriceVolume"]
-
-    price = df["avgLowPrice"]
-    volume = df["total_volume"]
-
-    mean_price = price.mean()
-    std_price = price.std()
-    avg_volume = volume.mean()
-
-    if pd.isna(std_price) or std_price == 0:
+    try:
+        mean_price = mean(prices)
+        std_price = stdev(prices)
+        avg_volume = mean(volumes)
+    except Exception:
         return {"is_dump": False}
 
-    current_price = price.iloc[-1]
-    current_volume = volume.iloc[-1]
+    if std_price == 0:
+        return {"is_dump": False}
 
+    current_price = prices[-1]
+    current_volume = volumes[-1]
     z_score = (current_price - mean_price) / std_price
     volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
+    is_dump = (
+        z_score < z_threshold and volume_ratio > volume_multiplier and buy_limit > 70
+    )
 
-    is_dump = bool(z_score < z_threshold and volume_ratio > volume_multiplier)
-
-    # Profit estimation
-    buy_price = current_price
-    sell_price = mean_price
-    profit_per_item = sell_price - buy_price
-
-    buy_limit = 1000
-    expected_total_profit = profit_per_item * buy_limit
+    # GE Tax
+    profit_per_item = (mean_price * (0.98 if mean_price > 50 else 1.0)) - current_price
 
     return {
         "is_dump": is_dump,
@@ -64,6 +68,6 @@ def detect_dump(
         "current_volume": int(current_volume),
         "avg_volume": int(avg_volume),
         "volume_ratio": round(volume_ratio, 2),
+        "profit_per_item": int(profit_per_item),
         "buy_limit": buy_limit,
-        "expected_total_profit": int(expected_total_profit),
     }

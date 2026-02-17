@@ -1,7 +1,7 @@
 import asyncio
 
 
-async def build_liquid_watchlist(ge_client, min_daily_volume=80000):
+async def build_liquid_watchlist(ge_client, min_daily_volume=10000):
     print("Building liquidity watchlist...")
 
     latest = await ge_client.fetch_latest()

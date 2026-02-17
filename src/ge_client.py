@@ -28,7 +28,10 @@ class GEClient:
         response = await self._client.get("/mapping")
         response.raise_for_status()
         data = response.json()
-        return {str(item["id"]): item["name"] for item in data}
+        return {
+            str(item["id"]): {"name": item["name"], "buy_limit": item.get("limit", 0)}
+            for item in data
+        }
 
     async def close(self):
         await self._client.aclose()
