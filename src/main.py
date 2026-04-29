@@ -1,80 +1,70 @@
 import asyncio
-import os
-from ge_client import GEClient
-from dump_detector import detect_dump
-from scanner import Scanner
-from discord_notifier import DiscordNotifier
+import discord
+from discord.ext import commands
 from dotenv import load_dotenv
-from liquid_watchlist import build_liquid_watchlist
+
+from config import DISCORD_TOKEN, DUMP_CHANNEL_ID, FLIPS_CHANNEL_ID
+from ge_client import GEClient
+from scanner import Scanner
+from cogs.dump_cog import DumpCog
+from cogs.screener_cog import ScreenerCog
+from cogs.control_cog import ControlCog
 
 load_dotenv()
 
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
+class OsrsBot(commands.Bot):
+    """
+    Main bot class. Holds all shared state that cogs read from:
+        - ge_client   : GEClient instance for all Wiki API calls
+        - item_data   : full item mapping (id → {name, buy_limit})
+        - watchlist   : set of item_ids currently being monitored (written by ScreenerCog)
+        - scanner     : Scanner instance for dump deduplication (used by DumpCog)
+    """
 
-async def scan_loop(ge_client, scanner, notifier, watchlist, item_data):
-    while True:
-        print("Scanning...")
+    def __init__(self):
+        intents = discord.Intents.default()
+        super().__init__(command_prefix="!", intents=intents)
 
-        semaphore = asyncio.Semaphore(50)
+        self.ge_client: GEClient = GEClient(
+            user_agent="osrs-dump-scanner - personal project"
+        )
+        self.scanner: Scanner = Scanner()
+        self.item_data: dict = {}
+        self.watchlist: set = set()
+        self.paused: bool = False
 
-        async def fetch(item_id):
-            async with semaphore:
-                return item_id, await ge_client.fetch_5m_timeseries(item_id)
+    async def setup_hook(self):
+        """
+        Called once before the bot connects. Loads item data and registers cogs.
+        setup_hook is the recommended place for async startup work in discord.py 2.x.
+        """
+        print("[Bot] Fetching item mapping...")
+        self.item_data = await self.ge_client.fetch_item_mapping()
+        print(f"[Bot] Loaded {len(self.item_data):,} items.")
 
-        tasks = [fetch(item_id) for item_id in watchlist]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        await self.add_cog(ScreenerCog(self))
+        await self.add_cog(DumpCog(self))
+        await self.add_cog(ControlCog(self))
+        print("[Bot] Cogs loaded.")
 
-        for result in results:
-            if isinstance(result, Exception):
-                continue
+        # Sync slash commands globally
+        await self.tree.sync()
+        print("[Bot] Slash commands synced.")
 
-            item_id, timeseries = result
+    async def on_ready(self):
+        print(f"[Bot] Logged in as {self.user} (ID: {self.user.id})")
+        print(f"[Bot] Watching {len(self.watchlist)} items for dumps.")
 
-            if not timeseries:
-                continue
-
-            item_meta = item_data.get(str(item_id))
-            if not item_meta:
-                continue
-
-            buy_limit = item_meta["buy_limit"]
-            item_name = item_meta["name"]
-
-            dump_data = detect_dump(timeseries, buy_limit)
-
-            if not dump_data.get("is_dump"):
-                continue
-
-            dump_data["expected_total_profit"] = (
-                dump_data["profit_per_item"] * dump_data["buy_limit"]
-            )
-
-            alert = scanner.process_item(item_id, dump_data)
-
-            if alert:
-                alert["item_id"] = item_id
-                await notifier.send_alert(alert, item_name)
-
-        # Wait before next poll
-        await asyncio.sleep(120)
+    async def close(self):
+        await self.ge_client.close()
+        await super().close()
 
 
 async def main():
-    ge_client = GEClient(user_agent="osrs-dump-scanner - personal project")
-    scanner = Scanner()
-
-    item_data = await ge_client.fetch_item_mapping()
-    watchlist = await build_liquid_watchlist(ge_client)
-
-    bot = None
-
-    async def scanner_task():
-        await scan_loop(ge_client, scanner, bot, watchlist, item_data)
-
-    bot = DiscordNotifier(DISCORD_TOKEN, CHANNEL_ID, scanner_task)
-    await bot.start(DISCORD_TOKEN)
+    bot = OsrsBot()
+    async with bot:
+        await bot.start(DISCORD_TOKEN)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,16 @@ class GEClient:
         response.raise_for_status()
         return response.json()["data"]
 
+    async def fetch_1h(self) -> Dict[str, Any]:
+        response = await self._client.get("/1h")
+        response.raise_for_status()
+        return response.json()["data"]
+
+    async def fetch_6h(self) -> Dict[str, Any]:
+        response = await self._client.get("/6h")
+        response.raise_for_status()
+        return response.json()["data"]
+
     async def fetch_item_mapping(self):
         response = await self._client.get("/mapping")
         response.raise_for_status()
