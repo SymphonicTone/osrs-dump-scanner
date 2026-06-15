@@ -11,6 +11,7 @@ class PriceHistory:
         self.cur = self.con.cursor()
         self._init_schema()
 
+    # Creates tables if they currently do not exist
     def _init_schema(self):
         self.cur.executescript("""
             CREATE TABLE IF NOT EXISTS price_history (
@@ -33,6 +34,7 @@ class PriceHistory:
         """)
         self.con.commit()
 
+    # Writes a price snapshot only when high or low price has changes since the last record
     def write_if_changed(
         self,
         item_id: str,
@@ -56,6 +58,7 @@ class PriceHistory:
         self.con.commit()
         return True
 
+    # Writes a list of price snapshots in bulk, skipping unchanged prices
     def write_batch(self, records: List[Dict[str, Any]]) -> int:
         written = 0
         for r in records:
@@ -70,6 +73,7 @@ class PriceHistory:
                 written += 1
         return written
 
+    # Returns the most recent price record
     def _get_last_record(self, item_id: str) -> sqlite3.Row | None:
         self.cur.execute(
             """
@@ -82,6 +86,7 @@ class PriceHistory:
         )
         return self.cur.fetchone()
 
+    # Returns all price records for a specific item within a specified time period
     def get_history(self, item_id: str, days: int = 30) -> List[sqlite3.Row]:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         self.cur.execute(
@@ -94,6 +99,7 @@ class PriceHistory:
         )
         return self.cur.fetchall()
 
+    # Returns how many days of history an item has
     def get_days_of_history(self, item_id: str) -> float:
         self.cur.execute(
             """
@@ -110,6 +116,7 @@ class PriceHistory:
         latest = datetime.fromisoformat(row[1])
         return (latest - earliest).total_seconds() / 86400
     
+    # Calculates historical baseline statistics for an item over a specified amount of days
     def get_baseline(self, item_id: str, days: int = 30) -> Dict[str, Any] | None:
         history = self.get_history(item_id, days)
 
@@ -142,6 +149,7 @@ class PriceHistory:
             "record_count": len(history),
         }
     
+    # Scores how far the current price deviates from historical baseline
     def get_mean_reversion_score(
         self,
         item_id:        str,
@@ -192,6 +200,7 @@ class PriceHistory:
             "baseline":         baseline,
         }
     
+    # Deletes records older than days_to_keep and returns the number of records deleted
     def prune_old_records(self, days_to_keep: int = 35) -> int:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days_to_keep)).isoformat()
         self.cur.execute(
@@ -203,6 +212,7 @@ class PriceHistory:
         print(f"[DB] Pruned {deleted:,} records older than {days_to_keep} days.")
         return deleted
     
+    # Runs vacuum to reclaim freed disk space if it hasn't been run recently
     def vacuum_if_due(self) -> bool:
         self.cur.execute("SELECT vacuumed_at FROM last_vacuum WHHERE id = 1")
         row = self.cur.fetchone()
@@ -223,6 +233,7 @@ class PriceHistory:
         print("[DB] VACUUM complete.")
         return True
 
+    # Returns basic database stats for the /status command
     def get_stats(self) -> Dict[str, Any]:
         self.cur.execute("SELECT COUNT(*) FROM price_history")
         total_records = self.cur.fetchone()[0]
