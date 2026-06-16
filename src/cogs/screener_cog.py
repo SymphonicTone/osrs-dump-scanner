@@ -44,9 +44,11 @@ class ScreenerCog(commands.Cog):
         self.last_screener_ts: float | None = None
         self._last_results: list = []
         self._screener_loop.start()
+        self._maintenance_loop.start()
 
     def cog_unload(self):
         self._screener_loop.cancel()
+        self._maintenance_loop.cancel()
 
     # ── Screener loop ──────────────────────────────────────────────────────────
 
@@ -96,11 +98,34 @@ class ScreenerCog(commands.Cog):
 
         print(f"[ScreenerCog] Screener complete. {len(results)} flip(s) found.")
 
+        records = [
+            {
+                "item_id": item_id,
+                "high": prices.get("high", 0),
+                "low": prices.get("low", 0),
+                "high_volume": prices.get("highVolume", 0),
+                "low_volume": prices.get("lowVolume", 0),
+            }
+            for item_id, prices in latest.items()
+            if prices.get("high") and prices.get("low")
+        ]
+        written = self.bot.price_db.write_batch(records)
+        print(f"[ScreenerCog] Wrote {written:,} new price records to DB.")
+
         embed = build_screener_embed(results)
         await channel.send(embed=embed)
 
     @_screener_loop.before_loop
     async def _before_screener_loop(self):
+        await self.bot.wait_until_ready()
+
+    @tasks.loop(hours=24)
+    async def _maintenance_loop(self):
+        self.bot.price_db.prune_old_records(days_to_keep=35)
+        self.bot.price_db.vacuum_if_due()
+
+    @_maintenance_loop.before_loop
+    async def _before_maintenance_loop(self):
         await self.bot.wait_until_ready()
 
     # ── Slash commands ─────────────────────────────────────────────────────────
