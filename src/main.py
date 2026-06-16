@@ -9,6 +9,7 @@ from scanner import Scanner
 from cogs.dump_cog import DumpCog
 from cogs.screener_cog import ScreenerCog
 from cogs.control_cog import ControlCog
+from db.price_history import PriceHistory
 
 load_dotenv()
 
@@ -33,6 +34,7 @@ class OsrsBot(commands.Bot):
         self.item_data: dict = {}
         self.watchlist: set = set()
         self.paused: bool = False
+        self.price_db: PriceHistory = PriceHistory("data/price_history.db")
 
     async def setup_hook(self):
         """
@@ -58,6 +60,7 @@ class OsrsBot(commands.Bot):
 
     async def close(self):
         await self.ge_client.close()
+        self.price_db.close()
         await super().close()
 
 
