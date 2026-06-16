@@ -4,7 +4,7 @@ from typing import Dict, Any, List
 
 
 class PriceHistory:
-    def __init__(self, db_path: str = "data/price_historyr.db"):
+    def __init__(self, db_path: str = "data/price_history.db"):
         self.db_path = db_path
         self.con = sqlite3.connect(db_path, check_same_thread=False)
         self.con.row_factory = sqlite3.Row
@@ -15,7 +15,7 @@ class PriceHistory:
     def _init_schema(self):
         self.cur.executescript("""
             CREATE TABLE IF NOT EXISTS price_history (
-                id          INTEGER PRRIMARY KEY AUTOINCREMENT
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 item_id     TEXT    NOT NULL,
                 timestamp   TEXT    NOT NULL,
                 high        INTEGER NOT NULL,
@@ -53,7 +53,7 @@ class PriceHistory:
             INSERT INTO price_history(item_id, timestamp, high, low, high_volume, low_volume)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (str[item_id], now, high, low, high_volume, low_volume),
+            (str(item_id), now, high, low, high_volume, low_volume),
         )
         self.con.commit()
         return True
@@ -66,8 +66,8 @@ class PriceHistory:
                 item_id=str(r["item_id"]),
                 high=int(r["high"]),
                 low=int(r["low"]),
-                high_volume=int(r.get["high_volume", 0]),
-                low_volume=int(r["low_volume", 0]),
+                high_volume=int(r.get("high_volume", 0)),
+                low_volume=int(r.get("low_volume", 0)),
             )
             if did_write:
                 written += 1
@@ -115,7 +115,7 @@ class PriceHistory:
         earliest = datetime.fromisoformat(row[0])
         latest = datetime.fromisoformat(row[1])
         return (latest - earliest).total_seconds() / 86400
-    
+
     # Calculates historical baseline statistics for an item over a specified amount of days
     def get_baseline(self, item_id: str, days: int = 30) -> Dict[str, Any] | None:
         history = self.get_history(item_id, days)
@@ -134,8 +134,8 @@ class PriceHistory:
         mean_volume = sum(volumes) / len(volumes)
 
         std_high = (sum((h - mean_high) ** 2 for h in highs) / len(highs)) ** 0.5
-        std_low = (sum((1 - mean_low) ** 2 for 1 in lows) / len(lows)) ** 0.
-        
+        std_low = (sum((l - mean_low) ** 2 for l in lows) / len(lows)) ** 0.5
+
         days_of_history = self.get_days_of_history(item_id)
 
         return {
@@ -148,37 +148,40 @@ class PriceHistory:
             "days_of_history": round(days_of_history, 1),
             "record_count": len(history),
         }
-    
+
     # Scores how far the current price deviates from historical baseline
     def get_mean_reversion_score(
         self,
-        item_id:        str,
-        current_high:   int,
-        current_low:    int,
-        min_days:       float = 7.0,
-        days_lookback:  int = 30,
+        item_id: str,
+        current_high: int,
+        current_low: int,
+        min_days: float = 7.0,
+        days_lookback: int = 30,
     ) -> Dict[str, Any] | None:
         baseline = self.get_baseline(item_id, days_lookback)
         if not baseline:
             return None
-        
+
         if baseline["days_of_history"] < min_days:
             return None
 
         high_z = (
             (current_high - baseline["mean_high"]) / baseline["std_high"]
-            if baseline["std_high"] > 0 else 0
+            if baseline["std_high"] > 0
+            else 0
         )
 
         low_z = (
             (current_low - baseline["mean_low"]) / baseline["std_low"]
-            if baseline["std_low"] > 0 else 0
+            if baseline["std_low"] > 0
+            else 0
         )
 
         current_spread = current_high - current_low
         spread_vs_mean = (
             current_spread / baseline["mean_spread"]
-            if baseline["mean_spread"] > 0 else 0
+            if baseline["mean_spread"] > 0
+            else 0
         )
 
         if low_z < -1.0 and high_z < -0.5:
@@ -191,15 +194,15 @@ class PriceHistory:
             opportunity = "none"
 
         return {
-            "high_z_score":     round(high_z, 3),
-            "low_z_score":      round(low_z, 3),
-            "spread_vs_mean":   round(spread_vs_mean, 3),
-            "suggested_buy":    int(baseline["mean_low"]),
-            "suggested_sell":   int(baseline["mean_high"]),
-            "opportunity":      opportunity,
-            "baseline":         baseline,
+            "high_z_score": round(high_z, 3),
+            "low_z_score": round(low_z, 3),
+            "spread_vs_mean": round(spread_vs_mean, 3),
+            "suggested_buy": int(baseline["mean_low"]),
+            "suggested_sell": int(baseline["mean_high"]),
+            "opportunity": opportunity,
+            "baseline": baseline,
         }
-    
+
     # Deletes records older than days_to_keep and returns the number of records deleted
     def prune_old_records(self, days_to_keep: int = 35) -> int:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days_to_keep)).isoformat()
@@ -211,10 +214,10 @@ class PriceHistory:
         self.con.commit()
         print(f"[DB] Pruned {deleted:,} records older than {days_to_keep} days.")
         return deleted
-    
+
     # Runs vacuum to reclaim freed disk space if it hasn't been run recently
     def vacuum_if_due(self) -> bool:
-        self.cur.execute("SELECT vacuumed_at FROM last_vacuum WHHERE id = 1")
+        self.cur.execute("SELECT vacuumed_at FROM last_vacuum WHERE id = 1")
         row = self.cur.fetchone()
 
         if row:
@@ -223,9 +226,9 @@ class PriceHistory:
                 return False
 
         self.con.execute("VACUUM")
-        now = datetime.now(timezone.utc) - last < timedelta(days=7)
+        now = datetime.now(timezone.utc).isoformat()
         self.cur.execute(
-            "INSERT INTO last_vacuum (id, vacuumed_at) VALUES (1, ?)"
+            "INSERT INTO last_vacuum (id, vacuumed_at) VALUES (1, ?) "
             "ON CONFLICT(id) DO UPDATE SET vacuumed_at = excluded.vacuumed_at",
             (now,),
         )
@@ -247,11 +250,11 @@ class PriceHistory:
         newest = row[1] or "N/A"
 
         return {
-            "total_records":    total_records,
-            "total_items":      total_items,
-            "oldest_record":    oldest,
-            "newest_record":    newest,
+            "total_records": total_records,
+            "total_items": total_items,
+            "oldest_record": oldest,
+            "newest_record": newest,
         }
-    
+
     def close(self):
         self.con.close()
